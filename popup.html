@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8"> 
   <style>
     @font-face {
       font-family: 'Vazirmatn';
@@ -10,7 +10,7 @@
       font-style: normal;
     }
     body { 
-      width: 650px; 
+      width: 650px;
       font-family: 'Vazirmatn', Tahoma, sans-serif; 
     }
     fieldset { border: 1px solid #ccc; padding: 8px; margin-bottom: 10px; border-radius: 4px; }
@@ -29,6 +29,29 @@
     #violations-report ul { margin: 0; padding-right: 20px; }
     #result { margin-top: 10px; }
     button { font-family: 'Vazirmatn', sans-serif; }
+    
+    /* Styles for Summary and Table */
+    .summary-report {
+        padding: 10px;
+        margin-bottom: 15px;
+        border: 1px solid #ccc;
+        background-color: #f9f9f9;
+        font-size: 12px;
+        line-height: 1.8;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    th, td { border: 1px solid #ccc; padding: 4px; text-align: right; }
+    th { 
+        background-color: #f2f2f2; 
+        position: sticky; 
+        top: 0; 
+        z-index: 100; 
+    }
+    
+    /* کلاس‌های رنگی برای وضعیت کاروان */
+    .status-critical { background-color: #ff8080 !important; color: #000; font-weight: bold; } /* قرمز پررنگ: نزدیک اعزام و پر نشده */
+    .status-alert { background-color: #ffcccc !important; color: #000; } /* قرمز کم‌رنگ: دورتر از اعزام و پر نشده */
+    .status-full { background-color: #ccffcc !important; color: #000; } /* سبز: پر شده */
   </style>
 </head>
 <body>
@@ -67,11 +90,12 @@
       <input type="number" class="limit-count" min="0">
       <button class="delete-rule-btn">حذف</button>
     </div>
-</template>
+  </template>
 
   <button id="extractButton">استخراج اطلاعات و بررسی قوانین</button>
   <hr>
 
+  <div id="summary-container"></div>
   <div id="violations-report" style="display:none;"></div>
   <div id="result"></div>
   <script src="popup.js"></script>
