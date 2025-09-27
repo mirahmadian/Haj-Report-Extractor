@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    @font-face {
+      font-family: 'Vazirmatn';
+      src: url('fonts/Vazirmatn-Regular.woff2') format('woff2');
+      font-weight: normal;
+      font-style: normal;
+    }
+    body { 
+      width: 650px; 
+      font-family: 'Vazirmatn', Tahoma, sans-serif; 
+    }
+    fieldset { border: 1px solid #ccc; padding: 8px; margin-bottom: 10px; border-radius: 4px; }
+    legend { font-weight: bold; font-size: 12px; padding: 0 5px; }
+    .setting-item, .rule-row { display: flex; align-items: center; margin-bottom: 8px; gap: 8px; }
+    .setting-item label { font-size: 12px; min-width: 150px; }
+    .setting-item input { width: 50px; font-family: 'Vazirmatn', sans-serif; }
+    #add-rule-btn { font-size: 11px; padding: 3px 8px; cursor: pointer; font-family: 'Vazirmatn', sans-serif; }
+    .rule-row input, .rule-row select { font-family: 'Vazirmatn', sans-serif; }
+    .rule-row input[type="text"] { flex-grow: 1; }
+    .rule-row input[type="number"] { width: 60px; }
+    .rule-row select { width: 120px; }
+    .delete-rule-btn { background-color: #ffcccc; border: 1px solid #ff9999; cursor: pointer; font-family: 'Vazirmatn', sans-serif; }
+    #violations-report { border: 1px solid #ffb3b3; background-color: #ffe6e6; padding: 5px; margin-bottom: 10px; font-size: 11px; }
+    #violations-report h4 { margin: 0 0 5px 0; color: #c00000; }
+    #violations-report ul { margin: 0; padding-right: 20px; }
+    #result { margin-top: 10px; }
+    button { font-family: 'Vazirmatn', sans-serif; }
+  </style>
+</head>
+<body>
+  <h3>گزارش‌گیر سامانه جامع عتبات (نسخه 2.0)</h3>
+
+  <fieldset>
+    <legend>تنظیمات هشدار ظرفیت خالی</legend>
+    <div class="setting-item">
+      <label for="daysInput">تعداد روز برای هشدار:</label>
+      <input type="number" id="daysInput" value="2" min="0">
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>مدیریت قوانین شمارش کاروان</legend>
+    <div id="rules-container"></div>
+    <button id="add-rule-btn">+ افزودن قانون جدید</button>
+  </fieldset>
+
+  <template id="rule-template">
+    <div class="rule-row">
+      <input type="text" class="company-keyword" placeholder="کلیدواژه شرکت">
+      <label>در روز:</label>
+      <select class="day-select">
+        <option value="-1">هر روز (پیش‌فرض)</option>
+        <option value="-2">شنبه تا پنجشنبه</option>
+        <option value="0">شنبه</option>
+        <option value="1">یکشنبه</option>
+        <option value="2">دوشنبه</option>
+        <option value="3">سه‌شنبه</option>
+        <option value="4">چهارشنبه</option>
+        <option value="5">پنجشنبه</option>
+        <option value="6">جمعه</option>
+      </select>
+      <label>تعداد مجاز:</label>
+      <input type="number" class="limit-count" min="0">
+      <button class="delete-rule-btn">حذف</button>
+    </div>
+</template>
+
+  <button id="extractButton">استخراج اطلاعات و بررسی قوانین</button>
+  <hr>
+
+  <div id="violations-report" style="display:none;"></div>
+  <div id="result"></div>
+  <script src="popup.js"></script>
+</body>
+</html>

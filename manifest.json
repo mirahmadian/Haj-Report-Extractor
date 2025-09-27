@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Haj Report Extractor",
+  "version": "2.0",
+  "description": "ابزار پیشرفته استخراج و تحلیل گزارشات سامانه حج و زیارت",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  }
+}
