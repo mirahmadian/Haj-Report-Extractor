@@ -1,3 +1,10 @@
+// --- متغیرهای سراسری برای مرتب‌سازی، فیلتر و داده‌ها ---
+let currentData = [];
+let sortColumn = 'dispatchDate'; // مرتب‌سازی پیش‌فرض بر اساس تاریخ اعزام
+let sortDirection = 'asc'; // جهت مرتب‌سازی پیش‌فرض (صعودی)
+let currentFilters = {}; // ذخیره فیلترهای فعال
+// --- پایان متغیرهای سراسری ---
+
 // -- بخش مدیریت قوانین داینامیک و متغیرها --
 let rules = [];
 const rulesContainer = document.getElementById('rules-container');
@@ -6,7 +13,6 @@ const ruleTemplate = document.getElementById('rule-template');
 const extractButton = document.getElementById('extractButton');
 const daysInput = document.getElementById('daysInput');
 const violationsReportDiv = document.getElementById('violations-report');
-const summaryContainer = document.getElementById('summary-container'); // اطمینان از وجود این المنت
 
 function saveState() {
     chrome.storage.local.set({ caravanRules: rules, alertDays: parseInt(daysInput.value, 10) || 2 });
@@ -77,11 +83,11 @@ extractButton.addEventListener('click', () => {
                 const rawData = injectionResults[0].result;
                 
                 if (rawData.length > 0) {
-                    // 1. پردازش داده‌های خام و اعمال منطق تاریخ و رنگ‌بندی
-                    const processedData = processDataAndApplyRules(rawData, alertDays);
-
-                    // 2. تحلیل تخلفات (از processedData استفاده می‌شود)
-                    const violations = analyzeCaravanLimits(processedData, rules);
+                    // 1. پردازش داده‌ها و ذخیره در متغیر جهانی
+                    currentData = processDataAndApplyRules(rawData, alertDays);
+                    
+                    // 2. تحلیل تخلفات (بدون تغییر)
+                    const violations = analyzeCaravanLimits(currentData, rules);
                     violationsReportDiv.style.display = 'block';
                     if (violations.length > 0) {
                         violationsReportDiv.innerHTML = '<h4 style="direction: rtl;">بخش هشدار تخلفات</h4><ul style="direction: rtl;">' + violations.map(v => `<li>${v}</li>`).join('') + '</ul>';
@@ -89,11 +95,8 @@ extractButton.addEventListener('click', () => {
                         violationsReportDiv.innerHTML = '<h4 style="direction: rtl;">بخش هشدار تخلفات</h4><p style="direction: rtl;">هیچ تخلفی در مورد تعداد کاروان‌ها یافت نشد.</p>';
                     }
 
-                    // 3. ساخت جدول و گزارش آماری
-                    const { htmlTable, summary } = createHtmlReportTable(processedData, alertDays);
-                    resultDiv.innerHTML = htmlTable;
-                    // **اضافه شدن مجدد ساخت گزارش خلاصه به DOM**
-                    document.getElementById('summary-container').innerHTML = createSummaryReport(summary, alertDays); 
+                    // 3. مرتب‌سازی و فیلتر اولیه و ساخت جدول
+                    renderTableAndSummary(currentData, alertDays);
                 } else {
                     resultDiv.innerHTML = "<p style='direction: rtl;'>هیچ ردیف معتبری (با متن مشکی) در جدول پیدا نشد.</p>";
                     document.getElementById('summary-container').innerHTML = '';
@@ -106,6 +109,177 @@ extractButton.addEventListener('click', () => {
         });
     });
 });
+
+/**
+ * تابع جدید: مرتب‌سازی داده‌های ذخیره شده و رندر مجدد جدول و خلاصه
+ * **توجه: منطق حفظ فوکوس در اینجا اضافه شده است**
+ */
+function renderTableAndSummary(data, alertDays) {
+    // 1. **ذخیره حالت فوکوس قبل از رندر مجدد**
+    let focusedElement = document.activeElement;
+    // بررسی می‌کنیم که عنصر فوکوس شده یک فیلد فیلتر با data-key معتبر باشد
+    let focusedKey = focusedElement && focusedElement.dataset && focusedElement.dataset.key ? focusedElement.dataset.key : null;
+    let cursorPosition = focusedElement ? focusedElement.selectionStart : null;
+
+    // 2. اعمال فیلتر بر داده‌های خام
+    const filteredData = applyFilters(data, currentFilters);
+
+    // 3. اعمال مرتب‌سازی بر داده‌های فیلتر شده
+    const sortedData = [...filteredData];
+    sortedData.sort(getSortComparator(sortColumn, sortDirection));
+
+    const { htmlTable, summary } = createHtmlReportTable(sortedData, alertDays);
+    document.getElementById('result').innerHTML = htmlTable;
+    document.getElementById('summary-container').innerHTML = createSummaryReport(summary, alertDays);
+    
+    // 4. اعمال Event Listenerها برای مرتب‌سازی و فیلتر
+    attachSortListeners(alertDays);
+    attachFilterListeners(alertDays); 
+    
+    // 5. **بازیابی فوکوس و مکان نما**
+    if (focusedKey) {
+        // پیدا کردن فیلد ورودی که به تازگی ساخته شده است
+        const newFocusedInput = document.querySelector(`#filter-row input[data-key="${focusedKey}"]`);
+        if (newFocusedInput) {
+            // بازگرداندن فوکوس
+            newFocusedInput.focus();
+            // بازگرداندن مکان نما به موقعیت قبلی
+            if (cursorPosition !== null && cursorPosition <= newFocusedInput.value.length) {
+                newFocusedInput.setSelectionRange(cursorPosition, cursorPosition);
+            }
+        }
+    }
+}
+
+/**
+ * تابع جدید: منطق اعمال فیلترها
+ */
+function applyFilters(data, filters) {
+    return data.filter(row => {
+        for (const key in filters) {
+            const filterValue = String(filters[key]).trim();
+            if (!filterValue) continue;
+
+            let rowValue = String(row[key]);
+            const isNumericColumn = ['capacity', 'pilgrimCount', 'availableSpots', 'cancellationCount'].includes(key);
+
+            if (isNumericColumn) {
+                const numericRowValue = parseInt(rowValue, 10) || 0;
+                
+                // فیلتر عددی (مثال: > 20, < 10, 15-25)
+                const comparisonMatch = filterValue.match(/([<>]=?)\s*(\d+)/);
+                const rangeMatch = filterValue.match(/^(\d+)-(\d+)$/);
+                const exactMatch = filterValue.match(/^\d+$/);
+
+                if (comparisonMatch) {
+                    const operator = comparisonMatch[1];
+                    const target = parseInt(comparisonMatch[2], 10);
+                    // بررسی شرط
+                    if (operator === '>' && numericRowValue <= target) return false;
+                    if (operator === '>=' && numericRowValue < target) return false;
+                    if (operator === '<' && numericRowValue >= target) return false;
+                    if (operator === '<=' && numericRowValue > target) return false;
+                } else if (rangeMatch) {
+                    const min = parseInt(rangeMatch[1], 10);
+                    const max = parseInt(rangeMatch[2], 10);
+                    if (numericRowValue < min || numericRowValue > max) return false;
+                } else if (exactMatch && numericRowValue !== parseInt(filterValue, 10)) {
+                    return false;
+                }
+            } else {
+                // فیلتر متنی (جستجوی زیررشته)
+                if (!rowValue.toLowerCase().includes(filterValue.toLowerCase())) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    });
+}
+
+
+/**
+ * تابع جدید: منطق مقایسه برای مرتب‌سازی
+ */
+function getSortComparator(column, direction) {
+    return (a, b) => {
+        let valA = a[column];
+        let valB = b[column];
+
+        // تبدیل نوع برای مقایسه صحیح (عددی یا تاریخ)
+        if (['capacity', 'pilgrimCount', 'availableSpots', 'cancellationCount'].includes(column)) {
+            valA = parseInt(valA, 10) || 0;
+            valB = parseInt(valB, 10) || 0;
+        } else if (column === 'dispatchDate') {
+            // تبدیل تاریخ شمسی (YYYY/MM/DD) به یک رشته عددی قابل مقایسه (YYYYMMDD)
+            valA = a.dispatchDate ? a.dispatchDate.replace(/\//g, '') : '00000000';
+            valB = b.dispatchDate ? b.dispatchDate.replace(/\//g, '') : '00000000';
+        }
+        
+        let comparison = 0;
+        if (valA > valB) {
+            comparison = 1;
+        } else if (valA < valB) {
+            comparison = -1;
+        }
+        
+        // اعمال جهت مرتب‌سازی
+        return direction === 'asc' ? comparison : comparison * -1;
+    };
+}
+
+
+/**
+ * تابع جدید: اضافه کردن Event Listener به سر ستون‌ها
+ */
+function attachSortListeners(alertDays) {
+    const headers = document.querySelectorAll('#result table thead tr:first-child th'); // فقط ردیف اول (عنوان‌ها)
+    const columnKeys = ['kargozarName', 'province', 'executingCompany', 'dispatchDate', 'capacity', 'pilgrimCount', 'availableSpots', 'cancellationCount'];
+    
+    headers.forEach((header, index) => {
+        const key = columnKeys[index];
+        header.style.cursor = 'pointer';
+        
+        // اضافه کردن نشانگر مرتب‌سازی (مثلث بالا یا پایین)
+        if (key === sortColumn) {
+            header.classList.add(sortDirection);
+            header.innerHTML = header.innerText.replace(/ [▲▼]/g, '') + (sortDirection === 'asc' ? ' ▲' : ' ▼');
+        } else {
+            header.innerHTML = header.innerText.replace(/ [▲▼]/g, '');
+        }
+
+        header.onclick = () => {
+            if (sortColumn === key) {
+                sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+            } else {
+                sortColumn = key;
+                sortDirection = 'asc';
+            }
+            renderTableAndSummary(currentData, alertDays);
+        };
+    });
+}
+
+/**
+ * تابع جدید: اضافه کردن Event Listener به فیلدهای فیلتر
+ */
+function attachFilterListeners(alertDays) {
+    const filterInputs = document.querySelectorAll('#filter-row input');
+    
+    filterInputs.forEach(input => {
+        // بازگرداندن مقدار فیلتر قبلی
+        input.value = currentFilters[input.dataset.key] || '';
+        
+        // افزودن Event Listener برای هر بار تغییر در ورودی
+        input.oninput = (e) => {
+            const key = e.target.dataset.key;
+            currentFilters[key] = e.target.value;
+            // رندر مجدد جدول با فیلتر جدید (با منطق حفظ فوکوس در renderTableAndSummary)
+            renderTableAndSummary(currentData, alertDays);
+        };
+    });
+}
+
 
 /**
  * تابع تزریق شده: فقط مسئول اسکرپینگ داده خام است.
@@ -122,7 +296,6 @@ function scrapeRawTableData() {
         if (cells.length < 25) return; 
         
         const cellToCheck = cells[1]; 
-        // استخراج فقط ردیف‌هایی که توسط سامانه قرمز نشده‌اند.
         const cellColor = window.getComputedStyle(cellToCheck).color; 
         if (cellColor === 'rgb(255, 99, 71)') { return; } 
         
@@ -142,11 +315,10 @@ function scrapeRawTableData() {
 
 
 /**
- * تابع پردازشگر: منطق تاریخ و رنگ‌بندی را در محیط امن popup.js اعمال می‌کند.
+ * تابع پردازشگر: منطق تاریخ و رنگ‌بندی را اعمال می‌کند.
  */
 function processDataAndApplyRules(rawData, alertDays) {
     const todayGregorian = new Date();
-    // استفاده از تابع داخلی gregorianToJalali برای اطمینان از دقت
     const [todayJalaliYear, todayJalaliMonth, todayJalaliDay] = dateConverter.gregorianToJalali( 
         todayGregorian.getFullYear(), todayGregorian.getMonth() + 1, todayGregorian.getDate() 
     );
@@ -157,7 +329,6 @@ function processDataAndApplyRules(rawData, alertDays) {
         const pilgrimCount = parseInt(row.pilgrimCount, 10);
         const availableSpots = (!isNaN(capacity) && !isNaN(pilgrimCount)) ? capacity - pilgrimCount : 0;
         
-        // وضعیت پیش‌فرض برای گروه‌هایی که خالی هستند اما فوری نیستند (نارنجی)
         let rowStatus = 'alert'; 
 
         if (availableSpots <= 0) {
@@ -166,10 +337,8 @@ function processDataAndApplyRules(rawData, alertDays) {
             const [dispatchYear, dispatchMonth, dispatchDay] = row.dispatchDate.split('/').map(Number);
             const dispatchJulian = dateConverter.jalaliToJulian(dispatchYear, dispatchMonth, dispatchDay);
             
-            // تفاضل دقیق روزها (نباید دیگر خطای آفست داشته باشد)
             const dayDiff = dispatchJulian - todayJulian; 
             
-            // منطق اصلی رنگ‌بندی (Critical): امروز (0) تا روز هشدار
             if (dayDiff >= 0 && dayDiff <= alertDays) {
                 rowStatus = 'critical';
             } else if (dayDiff < 0) {
@@ -185,16 +354,37 @@ function processDataAndApplyRules(rawData, alertDays) {
  * تابع ساخت گزارش و جدول نهایی و تعیین رنگ ردیف‌ها
  */
 function createHtmlReportTable(data, alertDays) { 
-    // **برگرداندن کلاس‌های CSS برای رنگ‌بندی دقیق**
+    const columnKeys = ['kargozarName', 'province', 'executingCompany', 'dispatchDate', 'capacity', 'pilgrimCount', 'availableSpots', 'cancellationCount'];
+    
     let htmlTable = `
         <style> 
             table { width: 100%; border-collapse: collapse; font-size: 11px; direction: rtl; } 
             th, td { border: 1px solid #ccc; padding: 4px; text-align: right; } 
             th { background-color: #f2f2f2; } 
-            .status-critical { background-color: #ec4f4fff !important; font-weight: bold; } /* قرمز پررنگ */
-            .status-alert { background-color: #ffb0b7ff !important; } /* نارنجی کم‌رنگ */
-            .status-full { background-color: #a7f8a7ff !important; color: #000000ff; }
+            
+            /* رنگ‌های درخواستی شما */
+            .status-critical { background-color: #f15555 !important; font-weight: bold; } 
+            .status-alert { background-color: #fdbaba !important; } 
+            .status-full { background-color: #a3f3a3 !important; color: #000000; } 
+            
+            /* استایل‌های جدید برای فیلتر و مرتب‌سازی */
+            #result table thead tr:first-child th { cursor: pointer; user-select: none; }
+            #result table thead tr:first-child th.asc { background-color: #e6f7ff; }
+            #result table thead tr:first-child th.desc { background-color: #ffe6e6; }
+
+            #filter-row input { 
+                width: 90%; 
+                box-sizing: border-box; 
+                direction: rtl; 
+                font-family: 'Vazirmatn', Tahoma, sans-serif;
+                font-size: 10px;
+                padding: 2px;
+                border: 1px solid #ccc;
+                border-radius: 2px;
+            }
+            #filter-row td { padding: 2px 4px; }
         </style>
+        <div id="summary-container"></div>
         <table border="1">
         <thead>
             <tr>
@@ -207,11 +397,13 @@ function createHtmlReportTable(data, alertDays) {
                 <th>ظرفیت خالی</th>
                 <th>انصرافی</th>
             </tr>
+            <tr id="filter-row">
+                ${columnKeys.map(key => `<td><input type="text" data-key="${key}" placeholder="فیلتر..."></td>`).join('')}
+            </tr>
         </thead>
         <tbody>
     `;
     
-    // **شمارش بر اساس rowStatus**
     const summary = { critical: 0, alert: 0, full: 0 }; 
 
     data.forEach(row => {
@@ -228,7 +420,6 @@ function createHtmlReportTable(data, alertDays) {
             summary.alert++;
         }
         
-        // اگر rowStatus 'ignored' باشد (تاریخ گذشته)، آن را در شمارش نمی‌آوریم اما در جدول نمایش می‌دهیم
         if (row.rowStatus === 'ignored') {
              rowClass = 'class="status-full"'; 
         }
@@ -246,12 +437,12 @@ function createHtmlReportTable(data, alertDays) {
     });
     htmlTable += '</tbody></table>';
     
-    return { htmlTable, summary };
+    return { htmlTable, summary }; 
 }
 
 
 /**
- * تابع ساخت گزارش آماری بالای جدول (بازسازی کامل)
+ * تابع ساخت گزارش آماری بالای جدول
  */
 function createSummaryReport(summary, alertDays) {
     const todayGregorian = new Date();
@@ -260,7 +451,6 @@ function createSummaryReport(summary, alertDays) {
     );
     const todayJalali = `${todayJalaliYear}/${String(todayJalaliMonth).padStart(2, '0')}/${String(todayJalaliDay).padStart(2, '0')}`;
     
-    // محاسبه تاریخ پایان محدوده هشدار
     const endAlertGregorian = new Date(todayGregorian);
     endAlertGregorian.setDate(todayGregorian.getDate() + alertDays);
     const [endAlertY, endAlertM, endAlertD] = dateConverter.gregorianToJalali( 
@@ -268,8 +458,6 @@ function createSummaryReport(summary, alertDays) {
     );
     const finalAlertDate = `${endAlertY}/${String(endAlertM).padStart(2, '0')}/${String(endAlertD).padStart(2, '0')}`;
 
-
-    // محاسبه روز بعد از محدوده هشدار (شروع محدوده Alert)
     const nextDayGregorian = new Date(todayGregorian);
     nextDayGregorian.setDate(todayGregorian.getDate() + alertDays + 1);
     const [nextDayY, nextDayM, nextDayD] = dateConverter.gregorianToJalali( 
@@ -353,15 +541,13 @@ function analyzeCaravanLimits(data, currentRules) {
 
 
 /**
- * تابع محاسبه روز هفته شمسی (بازگشت به متد دقیق)
+ * تابع محاسبه روز هفته شمسی 
  */
 function getJalaliDayOfWeek(jDateStr) {
-    // استفاده از تبدیل به میلادی و متد getDay برای دقت بالا در روز هفته
     const gregorianDate = dateConverter.jalaliToGregorian(jDateStr);
     
     let dayOfWeekGregorian = gregorianDate.getDay(); 
     
-    // تبدیل روز هفته میلادی (0=یکشنبه تا 6=شنبه) به شمسی (0=شنبه تا 6=جمعه)
     return (dayOfWeekGregorian + 1) % 7; 
 }
 
@@ -386,7 +572,7 @@ const dateConverter = {
     },
     // تبدیل تاریخ شمسی به میلادی
     jalaliToGregorian: (j_date_str) => { 
-        if (!j_date_str) return new Date(); // در صورت خطا، تاریخ امروز میلادی را برمی‌گرداند.
+        if (!j_date_str) return new Date(); 
         const [j_y, j_m, j_d] = j_date_str.split('/').map(Number); 
         
         const jalali_to_jd = (y, m, d) => { 
